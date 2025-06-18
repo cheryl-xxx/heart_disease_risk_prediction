@@ -6,3 +6,5 @@ It includes data cleaning, visualization, and a multinomial logistic regression 
 - Tools: R, ggplot2, randomForest, corrplot, plotly
 - Dataset: 920 patients, from UCI repository (via Kaggle)
 - Accuracy: 60.7% (test set)
+
+Data Source: https://www.kaggle.com/datasets/redwankarimsony/heart-disease-data
