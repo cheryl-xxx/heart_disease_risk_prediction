@@ -1,0 +1,306 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r}
+options(repos = c(CRAN = "https://cloud.r-project.org/"))
+```
+# Install packages
+```{r}
+install.packages("visdat")
+install.packages("corrplot")
+install.packages("plotly")
+install.packages("randomForest")
+```
+
+# Import library
+```{r}
+library(tidyverse)
+library(visdat)
+library(corrplot)
+library(plotly)
+library(randomForest)
+```
+
+# Import dataset
+```{r}
+heart_data <- read.csv("heart_disease_uci.csv")
+```
+
+# 1. Exploratory Data Analysis (EDA)
+## 1.1 Explore basic information about the dataset
+```{r}
+str(heart_data)
+```
+This UCI Heart Disease dataset has a comprehensive collection of medical data used for predicting the presence of heart disease in patients. Key features include:
+- Source: Cleveland Clinic Foundation, part of the UCI Machine Learning Repository
+- Sample Size: 303 patients
+- Features: 14 attributes (including the target variable)
+The target variable in this dataset is particularly valuable for our project. It's integer-valued from 0 (no presence) to 4, indicating increasing severity of heart disease. While our risk prediction model aims to output risk levels rather than diagnose disease severity directly, this classification in the dataset provides a crucial source for training our heart disease risk prediction model.
+
+## 1.2 Clean the dataset
+### Step 1: Check the data type of the dataset
+```{r}
+# Check types of each column
+column_types <- sapply(heart_data, class)
+column_types
+
+# Create a data frame to store column types and their counts
+type_distribution <- as.data.frame(table(column_types))
+type_distribution
+
+# Calculate type distribution percentages
+type_distribution$percentage <- type_distribution$Freq / sum(type_distribution$Freq) * 100
+
+# Create a pie chart to visualize type distribution
+ggplot(type_distribution, aes(x = "", y = Freq, fill = column_types)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")), 
+            position = position_stack(vjust = 0.5),
+            color = "white") +  # Set text color to white
+  labs(title = "Distribution of Column Types in Heart Disease Dataset",
+       fill = "Data Type") +
+  theme_minimal() +
+  theme(axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.grid = element_blank(),
+        plot.title = element_text(hjust = 0.5))
+```
+
+### Step 2: Convert character columns to factors
+As we can see, sex, dataset, cp, restecg, slope, and thal columns are in character format. I convert them to factors, which is more appropriate for categorical data analysis.
+```{r}
+# Convert character columns to factors
+heart_data$sex <- as.factor(heart_data$sex)
+heart_data$dataset <- as.factor(heart_data$dataset)
+heart_data$cp <- as.factor(heart_data$cp)
+heart_data$restecg <- as.factor(heart_data$restecg)
+heart_data$slope <- as.factor(heart_data$slope)
+heart_data$thal <- as.factor(heart_data$thal)
+```
+
+### Step 3: Convert logical columns to 0/1
+As we can see, fbs and exang coluns are in logical format. I convert them from TRUE/FALSE values to 0/1, i.e. 0 means TRUE, 1 means FALSE.
+```{r}
+# Convert logical columns to factors
+heart_data$fbs <- as.factor(heart_data$fbs)
+heart_data$exang <- as.factor(heart_data$exang)
+
+# Display the result after converting
+str(heart_data)
+```
+The other values are already integers or numeric, so no change is needed.
+
+### Step 4: Check for duplicate and missin values, and remove them
+```{r}
+# Remove duplicate rows
+heart_data <- heart_data %>% distinct()
+
+# Check and visualize missing values in each column
+missing_values <- sapply(heart_data, function(x)sum(is.na(x)))
+missing_values
+vis_miss(heart_data)
+
+# Remove rows with missing values
+cleaned_heart_data <- na.omit(heart_data)
+```
+
+### Display summary of the cleaned dataset
+```{r}
+summary(cleaned_heart_data)
+```
+
+## 1.3 Visualization
+### a. Age analysis
+```{r}
+ggplot(cleaned_heart_data, aes(x = age)) +
+  geom_histogram(binwidth = 3, fill = "lightblue", color = "white") +
+  geom_density(aes(y = ..count.. * 3), color = "darkblue", size = 1) +
+  geom_vline(aes(xintercept = mean(age)), color = "red", linetype = "dashed", size = 1) +
+  labs(title = "Age Distribution of Heart Disease Patients",
+       x = "Age", y = "Count") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+This graph illustrates the age distribution of heart disease patients, ranging from 30 to 80 years old.
+- The distribution approximates a normal curve, with a peak around 55-60 years of age.
+- The average age, indicated by the red dashed line, is approximately 55 years old.
+- While the data spans from 30 to 80 years, it is predominantly concentrated in the 40-70 age range.
+- There's a notable increase in the frequency of heart disease cases starting from age 40, with the highest concentration between 50 and 65 years.
+- The occurrence of heart disease is relatively low for individuals under 40 and over 70 years old.
+This distribution highlights age as a crucial factor in heart disease risk, suggesting that middle-aged to older adults are at higher risk. This insight is valuable for developing targeted prevention strategies and risk assessment models.
+
+### b. Gender analysis
+```{r}
+ggplot(cleaned_heart_data, aes(x = factor(sex), fill = factor(num))) +
+  geom_bar(position = "fill") +
+  labs(title = "Heart Disease Prevalence by Gender",
+       x = "Gender", y = "Proportion", fill = "Heart Disease")
+```
+This graph shows the prevalence of heart disease by gender.
+- Males show a significantly higher overall prevalence of heart disease than females.
+- About 75% of females have no heart disease (level 0), compared to only 35% of males.
+- Males have higher proportions across all heart disease severity levels (1-4).
+This visualization clearly demonstrates that gender is a significant factor in heart disease risk, with males being at higher risk across all severity levels.
+
+### c. Chest Pain Type analysis
+```{r}
+# Create a contingency table
+heatmap_data <- cleaned_heart_data %>%
+  group_by(cp, num) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  mutate(percentage = count / sum(count))
+
+# Create the heat map
+ggplot(heatmap_data, aes(x = cp, y = factor(num), fill = percentage)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "red") +
+  labs(title = "Heatmap of Heart Disease Severity by Chest Pain Type",
+       x = "Chest Pain Type",
+       y = "Heart Disease Severity",
+       fill = "Percentage") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+This heat map reveals the complex relationship between chest pain types and heart disease severity:
+- Asymptomatic patients show a significant distribution across all severity levels, particularly level 1, indicating that lack of chest pain doesn't rule out heart disease.
+- Atypical angina is strongly associated with no heart disease (level 0).
+- Non-anginal pain mostly indicates no heart disease, but has some cases across other severity levels.
+- Typical angina shows a strong correlation with heart disease, especially at severity levels 1 and 2.
+These insights highlight that chest pain type, while crucial, is not a definitive indicator of heart disease. The presence of heart disease in asymptomatic patients and the strong association of typical angina with heart disease are particularly noteworthy for risk assessment models.
+
+### d. Blood Pressure and Cholesterol analysis
+```{r}
+# Box plots
+ggplot(cleaned_heart_data, aes(x = factor(num), y = trestbps, fill = factor(num))) +
+  geom_boxplot() +
+  labs(title = "Blood Pressure Distribution by Heart Disease Severity",
+       x = "Heart Disease Severity", y = "Resting Blood Pressure", fill = "Severity") +
+  theme_minimal() +
+  coord_flip() +
+  geom_boxplot(aes(y = chol), alpha = 0.5) +
+  scale_y_continuous(sec.axis = sec_axis(~., name = "Serum Cholesterol")) +
+  ggtitle("Blood Pressure and Cholesterol Distribution by Heart Disease Severity")
+```
+This box plot shows that while blood pressure remains relatively consistent across heart disease severity levels, cholesterol levels tend to increase with disease severity. However, the considerable overlap in distributions for both measures across severity levels indicates that neither factor alone is a definitive predictor of heart disease. The presence of outliers and varying ranges, particularly in the no-disease group, emphasizes the complex, multifacorial nature of heart disease risk. 
+
+### e. Maximum Heart Rate analysis
+```{r}
+ggplot(cleaned_heart_data, aes(x = thalch, fill = factor(num))) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Distribution of Maximum Heart Rate by Heart Disease",
+       x = "Maximum Heart Rate", y = "Density", fill = "Heart Disease")
+```
+This density plot shows the distribution of maximum heart rates across heart disease severity levels.
+- As disease severity increases, peak maximum heart rates shift lower.
+- No-disease group has a higher, narrower peak, indicating more consistent heart rates.
+- Significant overlap exists between all distributions.
+- More severe cases tend towards lower maximum heart rates.
+- Higher severity levels show wider distributions, suggesting more variability.
+The plot reveals an inverse relationship between maximum heart rate and disease severity, while also demonstrating that heart rate alone is not a definitive indicator of heart disease due to distribution overlaps.
+
+### f. Resting ECG analysis
+```{r}
+ggplot(cleaned_heart_data, aes(x = factor(restecg), fill = factor(num))) +
+  geom_bar(position = "fill") +
+  labs(title = "Heart Disease Prevalence by Resting ECG Results",
+       x = "Resting ECG Results", y = "Proportion", fill = "Heart Disease")
+```
+This stacked bar chart shows heart disease severity distribution across different resting ECG results:
+- Normal ECG correlates with lower heart disease risk.
+- ST-T abnormality strongly links to increased disease severity.
+- LV hypertrophy shows a mixed distribution across all severity levels.
+- All ECG categories include some level of heart disease, indicating ECG alone isn't definitive for diagnosis.
+- Varying distributions emphasize ECG's importance in risk assessment, while suggesting the need for additional diagnostic factors.
+
+### h. Target variable distribution
+```{r}
+ggplot(cleaned_heart_data, aes(x = factor(num), y = age, fill = factor(num))) +
+  geom_boxplot() +
+  geom_jitter(width = 0.2, alpha = 0.5) +
+  stat_summary(fun = mean, geom = "point", shape = 23, size = 3, fill = "white") +
+  labs(title = "Age Distribution by Heart Disease Severity",
+       x = "Heart Disease Severity", 
+       y = "Age",
+       fill = "Severity") +
+  scale_x_discrete(labels = c("None", "Mild", "Moderate", "Severe", "Very Severe")) +
+  scale_fill_brewer(palette = "Set2") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  coord_flip() +
+  geom_text(data = cleaned_heart_data %>% group_by(num) %>% summarise(n = n(), age = min(age)),
+            aes(label = paste("n =", n), y = age), vjust = 1.5)
+```
+This boxplot depicts the age distribution across heart disease severity levels, primarily spanning 40-70 years with outliers from 30-75. While median age generally increases with disease severity, significant overlap exists across all levels. The "None" category (n=163) shows the widest age range and lowest median, whereas the "Very Severe" category (n=13) has the narrowest range and highest median. This visualization underscores age as a crucial factor in heart disease risk, but the overlaps suggest it's not the sole determinant. The chart implies that risk assessment models should consider multiple factors, especially for younger patients, and recommends increased vigilance for those over 40 while not neglecting younger individuals with other risk factors.
+
+### i. Correlation analysis of numerical variables
+```{r}
+numerical_vars <- cleaned_heart_data %>% select(age, trestbps, chol, thalch, num)
+cor_matrix <- cor(numerical_vars)
+corrplot(cor_matrix, method = "circle")
+```
+This correlation matrix visualizes relationships between key numerical variables in the heart disease dataset. Age shows a moderate negative correlation with maximum heart rate (thalch), suggesting decreased heart rate capacity with age. Notably, thalch has a moderate negative correlation with heart disease diagnosis (num), indicating lower maximum heart rates may be associated with higher disease severity. Age has a weak positive correlation with num, slightly increasing heart disease risk. Resting blood pressure (trestbps) and cholesterol (chol) show weak correlations with other variables. These insights suggest that maximum heart rate and age are potentially significant predictors for the risk model, while blood pressure and cholesterol might need consideration in combination with other factors. The analysis underscores the importance of a multifaceted approach in heart disease risk prediction, accounting for complex interactions between variables.
+
+### j. Summary statistics
+```{r}
+summary(cleaned_heart_data[c("age", "trestbps", "chol", "thalch", "num")])
+```
+This process generates summary statistics for key numerical variables in the heart disease dataset. It provides a concise overview of age, resting blood pressure (trestbps), cholesterol (chol), maximum heart rate (thalch), and heart disease diagnosis (num). For each variable, it displays the minimum, first quartile, median, mean, third quartile, and maximum values. This summary offers crucial insights into data distribution, central tendencies, and potential outliers, serving as a foundation for understanding variable ranges and informing subsequent data preprocessing and model development stages in the heart disease risk prediction project. Such statistical summaries are essential for identifying significant patterns and guiding feature engineering in the creation of an effective predictive model.
+
+# 2. Test with dataset
+## Step 1: Split the dataset into training dataset (80%) and testing dataset (20%) 
+```{r}
+# Set the random seed to ensure reproducibility
+set.seed(42)
+
+# Calculate the number of rows in the original dataset
+n <- nrow(cleaned_heart_data)
+
+# Generate indices for the testing set
+test_indices <- sample(n, size = round(0.2 * n))
+
+# Split the data into training dataset and testing dataset
+train_data <- cleaned_heart_data[-test_indices, ]
+test_data <- cleaned_heart_data[test_indices, ]
+
+# View the number of rows in the training dataset and testing dataset
+cat("Training dataset sample size:", nrow(train_data), "\n")
+cat("Testing dataset sample size:", nrow(test_data), "\n")
+```
+
+## Step 2: Train and test the model
+```{r}
+# Install and load the nnet package if not already installed
+# install.packages("nnet")
+library(nnet)
+
+# Build the multinomial logistic regression model on the training set
+multinom_model <- multinom(num ~ ., data = train_data)
+
+# Print the model summary
+summary(multinom_model)
+
+# Make predictions on the test set
+predicted_classes <- predict(multinom_model, newdata = test_data, type = "class")
+
+# Evaluate the model's performance
+confusion_matrix <- table(predicted_classes, test_data$num)
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+
+cat("Confusion Matrix:\n")
+print(confusion_matrix)
+cat("\nAccuracy:", round(accuracy, 3), "\n")
+```
+Model performance description:
+1. Model Convergence: The model converged after 100 iterations, reaching a final deviance value of 181.766697.
+2. Model Fit: The model's Residual Deviance is 363.5334, and its AIC (Akaike Information Criterion) is 547.5334. Lower values indicate better fit, but without comparison models, it's hard to judge the absolute quality of fit.
+3. Coefficients: The model produced coefficients for each predictor variable across the different outcome levels. Some coefficients show large values, which may indicate strong predictive power or potential overfitting.
+4. Standard Errors: Some standard errors are very small (close to zero), which could indicate perfect prediction in some cases or potential issues with the model.
+5. Confusion Matrix: This shows the model's predictive performance:
+The model correctly classified 33 cases of no heart disease (class 0).
+It had mixed performance on other classes, with some misclassifications.
+6. Accuracy: The overall accuracy of the model is 0.607 or 60.7%. This indicates that the model correctly predicted the heart disease class for about 61% of the cases in the test set.
+
+In summary, the model shows some predictive power, especially for identifying cases with no heart disease, its performance on other classes is mixed. The accuracy of 60.7% suggests there's room for improvement. Further analysis and potentially trying other modeling approaches might be beneficial to enhance the predictive performance for all classes of heart disease severity.
